@@ -1,5 +1,5 @@
 # velux_esp32
-Apple Homekit for Velux windows using Lilygo ESP32
+Apple Homekit integration (voice activation) for Velux windows using Lilygo ESP32 and velux standard remote
 
 ## What is this repo or project?
 
