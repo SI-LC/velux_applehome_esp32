@@ -26,6 +26,6 @@ Wiring etc
 
 ## Wiring Diagram?
 
-<img width="1440" alt="Screenshot 2023-02-15 at 11 32 51" src="https://user-images.githubusercontent.com/27014359/219016953-62c60101-4cff-4ade-85fb-d3db39a6b143.png">
+![Untitled](https://user-images.githubusercontent.com/27014359/219018425-351ac0a4-297d-4795-9bf8-c9a9cbdb733a.png)
 
 <img width="241" alt="Screenshot 2023-02-15 at 11 35 37" src="https://user-images.githubusercontent.com/27014359/219016849-457cc7b6-b6e8-4220-a6d3-c92fa4e376ec.png">
