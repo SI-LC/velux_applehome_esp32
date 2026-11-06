@@ -1,180 +1,195 @@
-
 ////////////////////////////////////
 //   DEVICE-SPECIFIC SERVICES     //
 ////////////////////////////////////
 
-struct DEV_Window : Service::Window {                           // Window Door Opener
+// DEV_Window exposes a HomeKit "Window" service and drives two relays.
+//
+// HomeKit sends TargetPosition as a percentage: 0 = closed, 100 = open.
+// The target range is limited to steps of 100, so the Home app only ever
+// sends 0 or 100 - i.e. fully close or fully open.
+//
+// Each command pulses one relay for 500 ms (a "button press" on the Velux
+// wall switch) and then waits 250 ms so two presses can't overlap. The
+// delay() calls block HomeSpan briefly, which is intentional and harmless.
 
-  int relayPin1;                                                // relay pin for opening
-  int relayPin2;                                                // relay pin for closing
-  int nClicks;                                                  // number of times to operate the relay
-  SpanCharacteristic *current;                                  // reference to the Current State Characteristic
-  SpanCharacteristic *target;                                   // reference to the Target State Characteristic
-  SpanCharacteristic *position;                                 // reference to the Actual State Characteristic
+struct DEV_Window : Service::Window {
 
-  SpanCharacteristic *power;
+  int relayPin1;                                                // relay pulsed when HomeKit asks for target = 0 (close)
+  int relayPin2;                                                // relay pulsed when HomeKit asks for target = 100 (open)
+  int nClicks;                                                  // unused - reserved for repeating the pulse
+  SpanCharacteristic *current;                                  // CurrentPosition (0-100 %)
+  SpanCharacteristic *target;                                   // TargetPosition  (0-100 %)
+  SpanCharacteristic *position;                                 // PositionState   (0 = closing, 1 = opening, 2 = stopped)
 
-  DEV_Window(int relayPin1, int relayPin2, int nClicks) : Service::Window(){       
-        
-    current=new Characteristic::CurrentPosition(0);              // initial value of 0 means closed
-    target=new Characteristic::TargetPosition(0);                // initial value of 0 means closed
-    target->setRange(0,100,100);                                 // set the allowable target-position range to 0-100 IN STEPS of 100
-    position=new Characteristic::PositionState(0);               // initial value of 0 means closed
+  SpanCharacteristic *power;                                    // unused
+
+  DEV_Window(int relayPin1, int relayPin2, int nClicks) : Service::Window(){
+
+    current=new Characteristic::CurrentPosition(0);              // start as closed (0 %)
+    target=new Characteristic::TargetPosition(0);                // start as closed (0 %)
+    target->setRange(0,100,100);                                 // only allow 0 or 100 - no partial positions
+    position=new Characteristic::PositionState(0);               // initial state
 
     this->relayPin1=relayPin1;
     this->relayPin2=relayPin2;
 
     this->nClicks=nClicks;
-    pinMode(relayPin1,OUTPUT);                                   // set the mode for this pin to be an OUTPUT (standard Arduino function)
-    pinMode(relayPin2,OUTPUT);                                   // set the mode for this pin to be an OUTPUT (standard Arduino function)
-    
-    Serial.print("Configuring Velux Window Opener: Pin=");       // initialization message
-    Serial.print(relayPin1,relayPin2);
-    Serial.print("  Clicks=");                                   // add output message for number of relay operations
+    pinMode(relayPin1,OUTPUT);
+    pinMode(relayPin2,OUTPUT);
+
+    Serial.print("Configuring Velux Window: close pin=");       // initialization message
+    Serial.print(relayPin1);
+    Serial.print("  open pin=");
+    Serial.print(relayPin2);
+    Serial.print("  Clicks=");
     Serial.print(nClicks);
     Serial.print("\n");
 
   } // end constructor
 
-  boolean update(){                                              // update() method
+  boolean update(){                                              // called by HomeSpan when the Home app changes TargetPosition
 
-    // see HAP Documentation for details on what each value represents
-
-    if(target->getNewVal()==0){                                  // if the target-state value is set to 0, requesting the window to be in open position
-      LOG1("Opening Velux Window\n");
+    if(target->getNewVal()==0){                                  // target = 0 -> HomeKit wants the window CLOSED
+      LOG1("Window target 0 (close) - pulsing relay on pin ");
       LOG1(relayPin1);
-      
-      digitalWrite(relayPin1,HIGH);                             // turn relay1 on
-      delay(500);                                               // wait 500 ms
-      digitalWrite(relayPin1,LOW);                              // turn relay1 off
-      delay(250);
-      current->setVal(2);                                       // set the current-state value to 2, which means "opening"
-      position->setVal(2);                                      
+      LOG1("\n");
 
-      for(int i=0;i<nClicks;i++){                               // loop over number of clicks
+      digitalWrite(relayPin1,HIGH);                             // relay on  (press the wall-switch button)
+      delay(500);                                               // hold for 500 ms
+      digitalWrite(relayPin1,LOW);                              // relay off (release the button)
+      delay(250);                                               // settle before anything else
+      current->setVal(2);                                       // nudge current away from target so Home shows "moving" until loop() settles it
+      position->setVal(2);                                      // PositionState 2 = stopped (relay pulse is over)
+
+      for(int i=0;i<nClicks;i++){                               // placeholder - nClicks is not used yet
 
       }
-      
-    } else {
-      LOG1("Closing Velux Window\n");                           // else the target-state value is set to 1, and HomeKit is requesting the door to be in the closed position
+
+    } else {                                                    // target = 100 -> HomeKit wants the window OPEN
+      LOG1("Window target 100 (open) - pulsing relay on pin ");
       LOG1(relayPin2);
-      digitalWrite(relayPin2,HIGH);                             // turn relay2 on
-      delay(500);                                               // wait 500 ms
-      digitalWrite(relayPin2,LOW);                              // turn relay2 off
-      delay(250);                                               // wait 250 ms
-      current->setVal(3);                                       // set the current-state value to 3, which means "closing"         
-      position->setVal(2);                                      // clear any prior obstruction detection
+      LOG1("\n");
+      digitalWrite(relayPin2,HIGH);                             // relay on  (press the wall-switch button)
+      delay(500);                                               // hold for 500 ms
+      digitalWrite(relayPin2,LOW);                              // relay off (release the button)
+      delay(250);                                               // settle before anything else
+      current->setVal(3);                                       // nudge current away from target so Home shows "moving" until loop() settles it
+      position->setVal(2);                                      // PositionState 2 = stopped (relay pulse is over)
     }
-    
-    return(true);                                               // return true
-  
+
+    return(true);                                               // tell HomeSpan the update was accepted
+
   } // update
 
-  void loop(){                                                  // loop() method
+  void loop(){                                                  // called by HomeSpan continuously
 
-    if(current->getVal()==target->getVal())                     // if current-state matches target-state there is nothing do -- exit loop()
+    if(current->getVal()==target->getVal())                     // nothing in progress - exit
       return;
 
-    if(current->getVal()==4)                                    // if the current-state is stopped, there is nothing more to do - exit loop()     
+    if(current->getVal()==4)                                    // never true with the values used above; kept as-is
       return;
 
-    // This last bit of code only gets called if the window is in a state that represents actively opening or actively closing.
-    // If there is an obstruction, the door is "stopped" and won't start again until the Controller requests a new open or close action
+    // We have no feedback from the Velux motor, so simulate a window that takes
+    // 5 seconds to move: once 5 s have passed since the target changed, report
+    // that the current position now equals the target.
 
-    if(target->timeVal()>5000)                     // simulate a window that takes 5 seconds to operate by monitoring time since target-state was last modified
-      current->setVal(target->getVal());           // set the current-state to the target-state
-       
+    if(target->timeVal()>5000)
+      current->setVal(target->getVal());
+
   } // loop
-  
+
 };
 
 ////////////////////////////////////
 
-struct DEV_WindowShade : Service::WindowCovering {     // A motorized Window Shade with Hold Feature
+// DEV_WindowShade exposes a HomeKit "Window Covering" service and drives two relays.
+//
+// Same idea as DEV_Window, but the direction is decided by comparing the new
+// target to the current position rather than checking for 0:
+//   target > current  -> pulse relayPin3 (raise / open)
+//   target < current  -> pulse relayPin4 (lower / close)
+// Because the target range is in steps of 100, the Home app only sends 0 or 100.
 
-  
-  int relayPin3;                                   // pin number defined for this LED
-  int relayPin4;                                   // pin number defined for this LED
-  int nClicks;                                      // NEW! number of times to blink
+struct DEV_WindowShade : Service::WindowCovering {
 
-  SpanCharacteristic *current;                     // reference to a "generic" Current Position Characteristic (used by a variety of different Service)
-  SpanCharacteristic *target;                      // reference to a "generic" Target Position Characteristic (used by a variety of different Service)
+  int relayPin3;                                   // relay pulsed to raise / open
+  int relayPin4;                                   // relay pulsed to lower / close
+  int nClicks;                                     // unused - reserved for repeating the pulse
 
-  DEV_WindowShade(int relayPin3, int relayPin4, int nClicks) : Service::WindowCovering(){       // constructor() method
-        
-    current=new Characteristic::CurrentPosition(0);     // Window Shades have positions that range from 0 (fully lowered) to 100 (fully raised)
-    
-    target=new Characteristic::TargetPosition(0);       // Window Shades have positions that range from 0 (fully lowered) to 100 (fully raised)
-    target->setRange(0,100,100);                         // set the allowable target-position range to 0-100 IN STEPS of 100
+  SpanCharacteristic *current;                     // CurrentPosition (0 = fully lowered, 100 = fully raised)
+  SpanCharacteristic *target;                      // TargetPosition  (0 = fully lowered, 100 = fully raised)
 
-    this->relayPin3=relayPin3;                            // don't forget to store relayPin...
-    this->relayPin4=relayPin4;                            // don't forget to store relayPin...
+  DEV_WindowShade(int relayPin3, int relayPin4, int nClicks) : Service::WindowCovering(){
+
+    current=new Characteristic::CurrentPosition(0);     // start as fully lowered (0 %)
+
+    target=new Characteristic::TargetPosition(0);       // start as fully lowered (0 %)
+    target->setRange(0,100,100);                        // only allow 0 or 100 - no partial positions
+
+    this->relayPin3=relayPin3;
+    this->relayPin4=relayPin4;
 
     this->nClicks=nClicks;
-    pinMode(relayPin3,OUTPUT);                         // ...and set the mode for ledPin to be an OUTPUT (standard Arduino function)
-    pinMode(relayPin4,OUTPUT);                         // ...and set the mode for ledPin to be an OUTPUT (standard Arduino function)
-    
-    Serial.print("Configuring Motorized Window Shade");   // initialization message
-    Serial.print(relayPin3,relayPin4);
-    Serial.print("  Blinks=");                       // NEW! add output message for number of blinks
+    pinMode(relayPin3,OUTPUT);
+    pinMode(relayPin4,OUTPUT);
+
+    Serial.print("Configuring Window Covering: raise pin=");   // initialization message
+    Serial.print(relayPin3);
+    Serial.print("  lower pin=");
+    Serial.print(relayPin4);
+    Serial.print("  Clicks=");
     Serial.print(nClicks);
     Serial.print("\n");
 
   } // end constructor
 
-  boolean update(){                              // update() method
+  boolean update(){                              // called by HomeSpan when the Home app changes TargetPosition
 
-    // The logic below is based on how HomeKit appears to operate in practice, which is NOT consistent with
-    // HAP documentation.  In that document HomeKit seems to support fully opening or fully closing a window shade, with
-    // an optional control to HOLD the window shade at a given in-between position while it is moving.
+    // HomeKit shows a 0-100 slider for window coverings (no separate HOLD button),
+    // and it tracks the current position itself. So all we need to do is work out
+    // which direction was requested and press the matching button.
 
-    // In practice, HomeKit does not appear to implement any form of a HOLD control button, even if you instantiate that
-    // Characteristic.  Instead, HomeKit provides a full slider control, similar to the brightness control for a lightbulb,
-    // that allows you to set the exact position of the window shade from 0-100%.  This obviates the need to any sort of HOLD button.
-    // The resulting logic is also very simple:
-
-    if(target->getNewVal()>current->getVal()){      // if the target-position requested is greater than the current-position, simply log a "raise" message  
-      LOG1("Raising Shade\n");                      // ** there is nothing more to do - HomeKit keeps track of the current-position so knows raising is required
-      
+    if(target->getNewVal()>current->getVal()){      // target above current -> raise / open
+      LOG1("Covering raising - pulsing relay on pin ");
       LOG1(relayPin3);
-      digitalWrite(relayPin3,HIGH);                    // turn pin on
-      delay(500);                                   // wait 100 ms
-      digitalWrite(relayPin3,LOW);                     // turn pin off
-      delay(250);                                   // wait 250 ms
-      
-    } else 
-    if(target->getNewVal()<current->getVal()){      // if the target-position requested is less than the current-position, simply log a "raise" message  
-      LOG1("Lowering Shade\n");                     // ** there is nothing more to do - HomeKit keeps track of the current-position so knows lowering is required
+      LOG1("\n");
+      digitalWrite(relayPin3,HIGH);                 // relay on  (press the wall-switch button)
+      delay(500);                                   // hold for 500 ms
+      digitalWrite(relayPin3,LOW);                  // relay off (release the button)
+      delay(250);                                   // settle before anything else
 
+    } else
+    if(target->getNewVal()<current->getVal()){      // target below current -> lower / close
+      LOG1("Covering lowering - pulsing relay on pin ");
       LOG1(relayPin4);
-      digitalWrite(relayPin4,HIGH);                    // turn pin on
-      delay(500);                                   // wait 100 ms
-      digitalWrite(relayPin4,LOW);                     // turn pin off
-      delay(250);                                   // wait 250 ms
+      LOG1("\n");
+      digitalWrite(relayPin4,HIGH);                 // relay on  (press the wall-switch button)
+      delay(500);                                   // hold for 500 ms
+      digitalWrite(relayPin4,LOW);                  // relay off (release the button)
+      delay(250);                                   // settle before anything else
     }
-        
-    return(true);                               // return true
-  
+
+    return(true);                                   // tell HomeSpan the update was accepted
+
   } // update
 
-  void loop(){                                     // loop() method
+  void loop(){                                     // called by HomeSpan continuously
 
-    // Here we simulate a window shade that takes 5 seconds to move to its new target posiiton
-    
-    if(current->getVal()!=target->getVal() && target->timeVal()>5000){          // if 5 seconds have elapsed since the target-position was last modified...
-      current->setVal(target->getVal());                                        // ...set the current position to equal the target position
+    // No feedback from the Velux motor, so simulate a covering that takes
+    // 5 seconds to move: once 5 s have passed since the target changed, report
+    // that the current position now equals the target.
+
+    if(current->getVal()!=target->getVal() && target->timeVal()>5000){
+      current->setVal(target->getVal());
     }
 
-    // Note there is no reason to send continuous updates of the current position to the HomeKit.  HomeKit does NOT display the
-    // current position.  Rather, it simply compares the value of the current position to the value of target positon as set by the
-    // the user in the Home App.  If it finds current and target positions are the same, it knows the shade is stopped.  Otherwise
-    // it will report the shade is raising or lowering depending on whether the specified target state is greater or less than
-    // the current state.
+    // There's no need to stream intermediate positions to HomeKit. The Home app
+    // simply compares current to target: equal means stopped, otherwise it shows
+    // "raising" or "lowering" depending on which way the target lies.
 
-    // According to HAP, the Characteristic Position State is also required.  However, this seems duplicative and is NOT needed
-    // at all given the way HomeKit uses current position.  HomeSpan will warn you if Position State is not defined (since it 
-    // is technically required) but this works fine without it.
-    
+    // HAP lists PositionState as required for Window Covering, but HomeKit works
+    // fine without it here (HomeSpan prints a warning at startup, which is safe to ignore).
+
   } // loop
-  
+
 };
